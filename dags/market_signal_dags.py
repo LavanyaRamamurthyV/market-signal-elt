@@ -5,8 +5,8 @@ clean table is refreshed and has passed the quality gate. signals_refresh is sch
 those Datasets (data-aware scheduling), so any upstream update re-runs mart, retrieval,
 signals and evaluation automatically.
 
-    prices_daily      weekdays after US market close   -> clean_prices
-    news_hourly       every hour                       -> clean_news_events
+    prices_15min      every 15 minutes on weekdays      -> clean_prices
+    news_llm_30min    every 30 minutes, Llama + Chroma  -> clean_news_events
     earnings_event    daily sensor on earnings calendar -> clean_earnings, clean_filings
     macro_daily       daily                            -> clean_macro
     signals_refresh   when ANY of the Datasets updates  -> mart_* tables
@@ -29,7 +29,8 @@ NEWS = Dataset("warehouse://clean_news_events")
 EARNINGS = Dataset("warehouse://clean_earnings")
 MACRO = Dataset("warehouse://clean_macro")
 
-DEFAULTS = {"owner": "data-eng", "retries": 2, "retry_delay": timedelta(minutes=5)}
+DEFAULTS = {"owner": "data-eng", "retries": 1, "retry_delay": timedelta(minutes=3)}
+# max_active_runs=1 on the scheduled DAGs: a run must finish before the next starts
 START = datetime(2026, 1, 1)
 
 
@@ -58,12 +59,14 @@ def ingest_tasks(dag, sources, tables, outlet):
     return gate
 
 
-with DAG("prices_daily", schedule="15 21 * * 1-5", start_date=START, catchup=False, default_args=DEFAULTS,
-         tags=["ingest"], doc_md="Daily prices for 10 stocks and 4 metals after the US close (21:15 UTC).") as d1:
+with DAG("prices_15min", schedule="*/15 * * * 1-5", start_date=START, catchup=False, max_active_runs=1,
+         default_args=DEFAULTS, tags=["ingest"],
+         doc_md="Prices for 10 stocks and 4 metals every 15 minutes on weekdays.") as d1:
     ingest_tasks(d1, ["prices"], ["clean_prices"], PRICES)
 
-with DAG("news_hourly", schedule="0 * * * *", start_date=START, catchup=False, default_args=DEFAULTS,
-         tags=["ingest", "ai"], doc_md="Hourly news; Llama structures each new story, Chroma dedups.") as d2:
+with DAG("news_llm_30min", schedule="*/30 * * * *", start_date=START, catchup=False, max_active_runs=1,
+         default_args=DEFAULTS, tags=["ingest", "ai"],
+         doc_md="News every 30 minutes; Llama structures each new story, Chroma dedups and indexes.") as d2:
     gate = ingest_tasks(d2, ["news"], ["clean_news"], None)
     enrich = PipelineTask("enrich_news_llm_chroma", "enrich", outlets=[NEWS])
     gate >> enrich
@@ -98,7 +101,7 @@ with DAG("macro_daily", schedule="0 13 * * 1-5", start_date=START, catchup=False
     ingest_tasks(d4, ["macro"], ["clean_macro"], MACRO)
 
 with DAG("signals_refresh", schedule=(PRICES | NEWS | EARNINGS | MACRO), start_date=START, catchup=False,
-         default_args=DEFAULTS, tags=["mart", "ai"],
+         max_active_runs=1, default_args=DEFAULTS, tags=["mart", "ai"],
          doc_md="Data-aware: runs whenever any upstream Dataset is updated.") as d5:
     mart = PipelineTask("build_mart_sql", "build_mart")
     retrieve = PipelineTask("retrieve_evidence_chroma", "retrieve")

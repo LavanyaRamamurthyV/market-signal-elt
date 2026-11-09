@@ -125,7 +125,16 @@ def synthesize() -> dict:
     evidence = db.read_sql("SELECT * FROM mart_evidence")
     analogs = db.read_sql("SELECT * FROM mart_analogs")
     fs = score_frame(latest)
+    # Prices refresh every 15 minutes, so the LLM is only called when an asset's decision inputs
+    # change (factor scores, baseline or evidence). Otherwise the previous model decision is reused.
+    prev, prev_trace = {}, pd.DataFrame()
+    if db.table_exists("mart_signals"):
+        p = db.read_sql("SELECT * FROM mart_signals")
+        if "input_key" in p:
+            prev = {r["symbol"]: r for r in p.to_dict("records")}
+            prev_trace = db.read_sql("SELECT * FROM mart_decision_trace")
     sig_rows, trace_rows, factor_rows = [], [], []
+    reused = 0
     for idx, row in latest.iterrows():
         sym = row["symbol"]
         factors = {k: int(v) for k, v in fs.loc[idx].items()}
@@ -139,7 +148,20 @@ def synthesize() -> dict:
         base = baseline_action(score)
         timing = _timing(row, base)
         ev = evidence[evidence.symbol == sym].sort_values("rank")
-        decided, provider = _llm_decide(row, factors, score, base, ev, an, timing)
+        input_key = f"{score}|{base}|{json.dumps(factors, sort_keys=True)}|{','.join(ev['story_id'])}"
+        old = prev.get(sym)
+        if old and old["input_key"] == input_key and not str(old["decided_by"]).startswith("offline"):
+            ot = prev_trace[prev_trace.symbol == sym].sort_values("step_no")
+            decided = {"action": old["action"], "confidence": old["confidence"], "timing": old["timing"],
+                       "summary": old["summary"], "risks": json.loads(old["risks"] or "[]"),
+                       "override_reason": old["override_reason"] or None,
+                       "trace": [{"step": t.step, "finding": t.finding,
+                                  "evidence_ids": [i for i in (t.evidence_ids or "").split(",") if i]}
+                                 for t in ot.itertuples()]}
+            provider = old["decided_by"]
+            reused += 1
+        else:
+            decided, provider = _llm_decide(row, factors, score, base, ev, an, timing)
         if decided:
             action, conf = decided["action"], decided.get("confidence", "medium")
             timing_out, summary = decided.get("timing") or timing, decided.get("summary", "")
@@ -158,7 +180,7 @@ def synthesize() -> dict:
                          "score": score, "confidence": conf, "timing": timing_out, "summary": summary,
                          "risks": json.dumps(risks), "override_reason": override or "",
                          "decided_by": provider, "data_origin": row["data_origin"],
-                         "next_report_date": row.get("next_report_date")})
+                         "next_report_date": row.get("next_report_date"), "input_key": input_key})
         for n, s in enumerate(trace, 1):
             trace_rows.append({"symbol": sym, "step_no": n, "step": s["step"], "finding": s["finding"],
                                "evidence_ids": ",".join(s.get("evidence_ids", []))})
@@ -171,4 +193,5 @@ def synthesize() -> dict:
     s = pd.DataFrame(sig_rows)
     return {"assets": len(s), "actions": s["action"].value_counts().to_dict(),
             "decided_by": s["decided_by"].value_counts().to_dict(),
-            "overrides": int((s["action"] != s["baseline_action"]).sum())}
+            "overrides": int((s["action"] != s["baseline_action"]).sum()),
+            "llm_decisions_reused": reused}

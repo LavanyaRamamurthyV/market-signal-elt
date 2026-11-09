@@ -140,3 +140,27 @@ def test_rules_classifier_and_json_parser():
     assert r["event_type"] == "legal" and r["sentiment"] < 0
     assert llm.parse_json('```json\n{"a": 1}\n```') == {"a": 1}
     assert llm.parse_json('noise {"b": [1,2]} trailing') == {"b": [1, 2]}
+
+
+def test_llm_decision_reused_when_inputs_unchanged(built, monkeypatch):
+    from sqlalchemy import create_engine
+
+    from msp import db, llm, signals
+
+    monkeypatch.setattr(db, "_engine", create_engine(f"sqlite:///{built / 'warehouse.db'}"))
+    calls = []
+
+    def fake(prompt, role="bulk", task=""):
+        calls.append(task)
+        return ({"action": "Hold", "confidence": "low", "timing": "t", "summary": "s",
+                 "trace": [{"step": "Evidence", "finding": "f", "evidence_ids": ["E1"]},
+                           {"step": "Decision", "finding": "Hold", "evidence_ids": []}],
+                 "risks": [], "override_reason": "stub"}, "Gemini (stub)")
+
+    monkeypatch.setattr(llm, "complete_json", fake)
+    monkeypatch.setattr(llm, "flush_call_log", lambda: 0)
+    first = signals.synthesize()
+    assert len(calls) == 14 and first["llm_decisions_reused"] == 0
+    second = signals.synthesize()
+    assert len(calls) == 14, "LLM was called again although nothing changed"
+    assert second["llm_decisions_reused"] == 14

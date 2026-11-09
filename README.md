@@ -16,9 +16,9 @@ An ELT pipeline with AI built into the steps rather than bolted on as a chatbot.
 | 3 | Load raw (land an untouched copy in the warehouse) | Postgres (COPY) / SQLite (INSERT) | ETL: Load | SQL | `raw_*` + `_loaded_at`, `_source`, `_batch_id` |
 | 4 | Clean (fix types, duplicates and gaps) | Pandas | Transform | Python | `clean_*` + `adj_close`, `ret_1d`, `is_trading_day` |
 | 5 | Quality gate (block bad data before it moves on) | Great Expectations + SQL checks | Validation | Python + SQL | `dq_results`, `data/reports/quality_report.html` |
-| 6 | News and filings enrichment (turn text into structured events) | Llama via Ollama + Chroma | AI: LLM extraction | Python | `clean_news_events`, Chroma `news_filings` |
+| 6 | Index news and filings (turn text into events and WRITE them to Chroma) | Llama via Ollama + Chroma | AI: LLM extraction + indexing | Python | `clean_news_events`, Chroma `news_filings` |
 | 7 | Build mart (join sources and compute features) | Postgres | Transform + aggregate | SQL (CTEs, window functions) | `mart_features_daily`, `mart_asset_latest` |
-| 8 | Retrieve evidence (supporting news and past analogs) | Chroma + SQL | AI: RAG retrieval | Python + SQL | `mart_evidence`, `mart_analogs` |
+| 8 | Retrieve evidence (READ from Chroma: supporting news and past analogs) | Chroma + SQL | AI: RAG retrieval | Python + SQL | `mart_evidence`, `mart_analogs` |
 | 9 | Signal synthesis (decide Buy, Hold or Sell) | Gemini + factor rules | AI: LLM reasoning | Python | `mart_signals`, `mart_decision_trace` |
 | 10 | Evaluate (prove signals are backed and accurate) | Gemini as judge + SQL backtest | AI eval + backtest | Python + SQL | `mart_eval_results`, `mart_backtest_*` |
 | 11 | Auto-refresh (re-run when new data lands) | Airflow Datasets | Orchestration | Python | all `mart_*` |
@@ -73,14 +73,14 @@ pytest -q                               # 12 tests, about 70 seconds
 
 | DAG | Schedule | Publishes Dataset |
 |---|---|---|
-| `prices_daily` | 21:15 UTC weekdays (after US close) | `clean_prices` |
-| `news_hourly` | hourly, then Llama + Chroma enrichment | `clean_news_events` |
+| `prices_15min` | every 15 minutes, weekdays | `clean_prices` |
+| `news_llm_30min` | every 30 minutes, then Llama + Chroma enrichment | `clean_news_events` |
 | `earnings_event` | daily `PythonSensor` waits for an earnings date | `clean_earnings` |
 | `macro_daily` | 13:00 UTC weekdays | `clean_macro` |
 | `signals_refresh` | **data-aware: when any Dataset above updates** | – |
 | `full_refresh_manual` | manual, all steps end to end | – |
 
-A dataset is published only after its quality gate passes, so bad data never triggers a refresh. Pipeline code runs in its own virtualenv inside the Airflow image through `ExternalPythonOperator`, so Chroma, Great Expectations and pandas 2+ never clash with Airflow's pinned packages.
+A dataset is published only after its quality gate passes, so bad data never triggers a refresh. Every scheduled DAG has `max_active_runs=1`, so a slow API never stacks up overlapping runs. Because prices refresh every 15 minutes, Gemini is only called for an asset when its decision inputs change (factor scores or evidence); otherwise the previous decision and judge verdict are reused, which keeps the free tier within limits. Pipeline code runs in its own virtualenv inside the Airflow image through `ExternalPythonOperator`, so Chroma, Great Expectations and pandas 2+ never clash with Airflow's pinned packages.
 
 ## Where AI runs, and what happens when it can't
 
