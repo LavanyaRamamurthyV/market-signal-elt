@@ -1,0 +1,76 @@
+# Full stack: Postgres warehouse, Airflow (scheduler + web UI), Ollama (Llama + embeddings),
+# Streamlit dashboard. Chroma runs embedded and persists to ./data/chroma (shared volume).
+#   docker compose up -d --build
+#   Airflow  http://localhost:8080  (admin / admin)
+#   App      http://localhost:8501
+x-env: &pipeline-env
+  DATABASE_URL: postgresql+psycopg2://msp:msp@postgres:5432/warehouse
+  OLLAMA_URL: http://ollama:11434
+  DATA_DIR: /opt/airflow/project/data
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: msp
+      POSTGRES_PASSWORD: msp
+      POSTGRES_DB: msp
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U msp"]
+      interval: 5s
+      retries: 20
+
+  ollama:
+    image: ollama/ollama:latest
+    volumes: [ollama:/root/.ollama]
+    ports: ["11434:11434"]
+
+  ollama-pull:
+    image: ollama/ollama:latest
+    depends_on: [ollama]
+    environment:
+      OLLAMA_HOST: ollama:11434
+    entrypoint: ["/bin/sh", "-c", "sleep 5 && ollama pull llama3.2:3b && ollama pull nomic-embed-text"]
+    restart: "no"
+
+  airflow:
+    build: {context: ., dockerfile: docker/Dockerfile.airflow}
+    user: "${AIRFLOW_UID:-50000}:0"
+    depends_on:
+      postgres: {condition: service_healthy}
+    env_file: [.env]
+    environment:
+      <<: *pipeline-env
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://msp:msp@postgres:5432/airflow
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "False"
+      AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: "30"
+    volumes:
+      - ./:/opt/airflow/project
+      - ./dags:/opt/airflow/dags
+    ports: ["8080:8080"]
+    command: >
+      bash -c "airflow db migrate &&
+               (airflow users create --username admin --password admin --firstname Demo --lastname User
+                 --role Admin --email admin@example.com || true) &&
+               (airflow scheduler &) && exec airflow webserver"
+
+  app:
+    build: {context: ., dockerfile: docker/Dockerfile.app}
+    depends_on:
+      postgres: {condition: service_healthy}
+    env_file: [.env]
+    environment:
+      <<: *pipeline-env
+      DATA_DIR: /app/data
+    volumes: ["./:/app"]
+    ports: ["8501:8501"]
+
+volumes:
+  pgdata:
+  ollama:
