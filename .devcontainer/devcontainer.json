@@ -1,11 +1,11 @@
 {
   "name": "market-signal-elt",
-  "image": "mcr.microsoft.com/devcontainers/python:3.11",
+  "image": "mcr.microsoft.com/devcontainers/python:1-3.11-bookworm",
   "features": {
-    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {"moby": false}
   },
-  "hostRequirements": {"cpus": 4, "memory": "16gb"},
-  "postCreateCommand": "pip install -r requirements.txt && cp -n .env.example .env && python -m msp.pipeline run --sample",
+  "hostRequirements": {"cpus": 4},
+  "postCreateCommand": "bash .devcontainer/setup.sh",
   "forwardPorts": [8501, 8080],
   "portsAttributes": {
     "8501": {"label": "Dashboard", "onAutoForward": "openBrowser"},
