@@ -4,7 +4,7 @@ Judge: Gemini checks each signal's decision trace against the evidence and facto
 it was given, and flags any claim that is not supported. Deterministic checks always run
 too (cited ids exist, action consistent with score or override explained).
 Backtest: the rules model is replayed over the last ~250 trading days in Python, then SQL
-aggregates what actually happened 10 days after each Buy, Hold and Avoid, both raw and
+aggregates what actually happened 10 days after each Buy, Hold and Sell, both raw and
 relative to each asset's own average return.
 """
 import json
@@ -23,7 +23,7 @@ SELECT asset_class, action,
        AVG(fwd_ret_10d) AS avg_fwd_ret_10d,
        AVG(excess_fwd_10d) AS avg_excess_ret_10d,
        AVG(CASE WHEN fwd_ret_10d > 0 THEN 1.0 ELSE 0.0 END) AS share_positive_10d,
-       AVG(CASE WHEN (action = 'Buy' AND fwd_ret_10d > 0) OR (action = 'Avoid' AND fwd_ret_10d < 0)
+       AVG(CASE WHEN (action = 'Buy' AND fwd_ret_10d > 0) OR (action = 'Sell' AND fwd_ret_10d < 0)
                 THEN 1.0 ELSE 0.0 END) AS hit_rate
 FROM mart_backtest_daily
 WHERE fwd_ret_10d IS NOT NULL
@@ -31,7 +31,7 @@ GROUP BY asset_class, action
 UNION ALL
 SELECT 'all' AS asset_class, action, COUNT(*), AVG(fwd_ret_10d), AVG(excess_fwd_10d),
        AVG(CASE WHEN fwd_ret_10d > 0 THEN 1.0 ELSE 0.0 END),
-       AVG(CASE WHEN (action = 'Buy' AND fwd_ret_10d > 0) OR (action = 'Avoid' AND fwd_ret_10d < 0)
+       AVG(CASE WHEN (action = 'Buy' AND fwd_ret_10d > 0) OR (action = 'Sell' AND fwd_ret_10d < 0)
                 THEN 1.0 ELSE 0.0 END)
 FROM mart_backtest_daily
 WHERE fwd_ret_10d IS NOT NULL
@@ -62,8 +62,8 @@ def _deterministic_checks(sig, trace: pd.DataFrame, ev_ids: set) -> list[str]:
         issues.append(f"action {sig['action']} differs from factor baseline {sig['baseline_action']} with no reason")
     if sig["action"] == "Buy" and sig["score"] < 0:
         issues.append("Buy with a negative factor score")
-    if sig["action"] == "Avoid" and sig["score"] > 0:
-        issues.append("Avoid with a positive factor score")
+    if sig["action"] == "Sell" and sig["score"] > 0:
+        issues.append("Sell with a positive factor score")
     return issues
 
 

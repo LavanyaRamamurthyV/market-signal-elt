@@ -36,7 +36,7 @@ def q(d, sql):
 def test_all_14_assets_get_a_signal(built):
     s = q(built, "SELECT * FROM mart_signals")
     assert len(s) == 14
-    assert set(s["action"]) <= {"Buy", "Hold", "Avoid"}
+    assert set(s["action"]) <= {"Buy", "Hold", "Sell"}
     assert s["asset_class"].value_counts().to_dict() == {"stock": 10, "metal": 4}
 
 

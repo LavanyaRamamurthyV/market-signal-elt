@@ -1,6 +1,6 @@
 # Market Signal ELT
 
-**Purpose:** turn raw market, earnings and news data into explainable, auto-refreshing Buy / Hold / Avoid research signals for 10 large US stocks and 4 metals.
+**Purpose:** turn raw market, earnings and news data into explainable, auto-refreshing Buy / Hold / Sell research signals for 10 large US stocks and 4 metals.
 
 An ELT pipeline with AI built into the steps rather than bolted on as a chatbot. Airflow orchestrates it, Postgres stores it, SQL builds the features, Python cleans and transforms, Great Expectations gates it, Llama structures the news, Chroma deduplicates and retrieves, Gemini decides and judges, and Streamlit shows the result.
 
@@ -19,7 +19,7 @@ An ELT pipeline with AI built into the steps rather than bolted on as a chatbot.
 | 6 | News and filings enrichment (turn text into structured events) | Llama via Ollama + Chroma | AI: LLM extraction | Python | `clean_news_events`, Chroma `news_filings` |
 | 7 | Build mart (join sources and compute features) | Postgres | Transform + aggregate | SQL (CTEs, window functions) | `mart_features_daily`, `mart_asset_latest` |
 | 8 | Retrieve evidence (supporting news and past analogs) | Chroma + SQL | AI: RAG retrieval | Python + SQL | `mart_evidence`, `mart_analogs` |
-| 9 | Signal synthesis (decide Buy, Hold or Avoid) | Gemini + factor rules | AI: LLM reasoning | Python | `mart_signals`, `mart_decision_trace` |
+| 9 | Signal synthesis (decide Buy, Hold or Sell) | Gemini + factor rules | AI: LLM reasoning | Python | `mart_signals`, `mart_decision_trace` |
 | 10 | Evaluate (prove signals are backed and accurate) | Gemini as judge + SQL backtest | AI eval + backtest | Python + SQL | `mart_eval_results`, `mart_backtest_*` |
 | 11 | Auto-refresh (re-run when new data lands) | Airflow Datasets | Orchestration | Python | all `mart_*` |
 | End | Market signal dashboard | Streamlit | Product | – | reads `mart_*`, `dq_*`, `ops_*` |

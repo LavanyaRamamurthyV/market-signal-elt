@@ -1,4 +1,4 @@
-"""Step 9 - Signal synthesis: decide Buy, Hold or Avoid, with a step-by-step decision trace.
+"""Step 9 - Signal synthesis: decide Buy, Hold or Sell, with a step-by-step decision trace.
 
 1. Deterministic factor scores from the mart (momentum, trend, RSI, news sentiment,
    earnings surprise for stocks, rates and dollar for metals, historical analogs).
@@ -16,8 +16,8 @@ import pandas as pd
 
 from . import config, db, llm
 
-ACTIONS = ["Buy", "Hold", "Avoid"]
-BUY_AT, AVOID_AT = 3, -2
+ACTIONS = ["Buy", "Hold", "Sell"]
+BUY_AT, SELL_AT = 3, -2
 
 
 def _bucket(x, hi2, hi1, lo1, lo2):
@@ -41,7 +41,7 @@ def score_frame(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def baseline_action(score: float) -> str:
-    return "Buy" if score >= BUY_AT else "Avoid" if score <= AVOID_AT else "Hold"
+    return "Buy" if score >= BUY_AT else "Sell" if score <= SELL_AT else "Hold"
 
 
 def _timing(row, action: str) -> str:
@@ -54,8 +54,8 @@ def _timing(row, action: str) -> str:
         if row["rsi14"] > 70 or row["dist_ma20"] > 0.05:
             return f"Wait for a pullback toward the 20-day average (about {row['ma20']:.2f}) before buying."
         return "Conditions support entering now; scale in rather than buying all at once."
-    if action == "Avoid":
-        return f"Avoid until price recovers above the 20-day average (about {row['ma20']:.2f}) and news turns neutral."
+    if action == "Sell":
+        return f"Sell or stay out until price recovers above the 20-day average (about {row['ma20']:.2f}) and news turns neutral."
     return "Hold existing positions; reassess on the next earnings report or a material news event."
 
 
@@ -75,7 +75,7 @@ def _rules_trace(row, factors: dict, ev: pd.DataFrame, an: pd.DataFrame, action:
                                  f"{an['fwd_ret_10d'].median():+.1%}, positive in {(an['fwd_ret_10d'] > 0).mean():.0%} of cases.",
                       "evidence_ids": []})
     steps.append({"step": "Decision", "finding": f"Total score {score:+d} maps to {action} "
-                                                f"(Buy at {BUY_AT:+d} or more, Avoid at {AVOID_AT:+d} or less).",
+                                                f"(Buy at {BUY_AT:+d} or more, Sell at {SELL_AT:+d} or less).",
                   "evidence_ids": []})
     return steps
 
@@ -95,10 +95,10 @@ def _llm_decide(row, factors, score, base, ev: pd.DataFrame, an: pd.DataFrame, t
     }
     prompt = (
         "You are a sell-side research analyst writing an explainable signal for an internal risk committee. "
-        "Use ONLY the data provided. Professional tone. Decide Buy, Hold or Avoid and when.\n"
+        "Use ONLY the data provided. Professional tone. Decide Buy, Hold or Sell and when.\n"
         "Rules: start from baseline_action; you may change it only if the evidence clearly contradicts it, and say why. "
         "Every trace step must cite evidence ids (E1..) or name the factor it relies on. Do not invent numbers.\n"
-        'Return JSON: {"action": "Buy|Hold|Avoid", "confidence": "low|medium|high", "timing": str, '
+        'Return JSON: {"action": "Buy|Hold|Sell", "confidence": "low|medium|high", "timing": str, '
         '"summary": str (max 40 words), "trace": [{"step": str, "finding": str, "evidence_ids": [str]}] (4-6 steps: '
         'evidence, fundamentals or macro, technicals, analogs, decision), "risks": [str] (max 3), '
         '"override_reason": str or null}\n'

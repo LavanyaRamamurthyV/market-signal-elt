@@ -16,8 +16,8 @@ sys.path.insert(0, str(ROOT))
 from msp import config, db  # noqa: E402
 
 st.set_page_config(page_title="Market Signal ELT", layout="wide")
-COLORS = {"Buy": "#0F6E56", "Hold": "#854F0B", "Avoid": "#A32D2D"}
-BG = {"Buy": "#E1F5EE", "Hold": "#FAEEDA", "Avoid": "#FCEBEB"}
+COLORS = {"Buy": "#0F6E56", "Hold": "#854F0B", "Sell": "#A32D2D"}
+BG = {"Buy": "#E1F5EE", "Hold": "#FAEEDA", "Sell": "#FCEBEB"}
 st.markdown("""<style>
 .card{border:1px solid #ddd;border-radius:10px;padding:10px 12px;margin-bottom:10px;background:#fff}
 .card .sym{font-size:12px;color:#666}.card .nm{font-weight:600;font-size:15px}
@@ -56,7 +56,7 @@ signals = q("SELECT * FROM mart_signals")
 # ------------------------------------------------------------------ sidebar
 with st.sidebar:
     st.header("Market Signal ELT")
-    st.caption("Raw market, earnings and news data into explainable, auto-refreshing Buy / Hold / Avoid "
+    st.caption("Raw market, earnings and news data into explainable, auto-refreshing Buy / Hold / Sell "
                "research signals for 10 stocks and 4 metals.")
     if len(signals):
         origins = q("SELECT DISTINCT data_origin FROM clean_prices")["data_origin"].tolist()
@@ -110,7 +110,7 @@ with tabs[0]:
     m = st.columns(4)
     m[0].metric("Buy", int(c.get("Buy", 0)))
     m[1].metric("Hold", int(c.get("Hold", 0)))
-    m[2].metric("Avoid", int(c.get("Avoid", 0)))
+    m[2].metric("Sell", int(c.get("Sell", 0)))
     ev = q("SELECT AVG(grounding_score) AS g, SUM(CASE WHEN supported THEN 1 ELSE 0 END) AS s, COUNT(*) AS n "
            "FROM mart_eval_results")
     if len(ev):
