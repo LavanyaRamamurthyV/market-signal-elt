@@ -2,7 +2,8 @@
 
 Every value is stored as text, exactly as received. Three lineage columns are added:
 _loaded_at, _source (live or sample) and _batch_id. Postgres loads use COPY; SQLite uses
-batched INSERTs. Raw tables are append-only; the three most recent batches are kept.
+batched INSERTs. Raw tables are append-only. News keeps every batch (each pull adds new
+stories, and history feeds the analog search); other sources keep their three latest batches.
 """
 import csv
 import io
@@ -60,7 +61,7 @@ def load_raw(sources: list[str] | None = None, batch_id: str | None = None) -> d
         else:
             db.write_df(df, table, if_exists="append")
         batches = db.read_sql(f'SELECT DISTINCT _batch_id FROM "{table}" ORDER BY _batch_id DESC')["_batch_id"].tolist()
-        for old in batches[KEEP_BATCHES:]:
+        for old in ([] if src == "news" else batches[KEEP_BATCHES:]):
             db.execute(f'DELETE FROM "{table}" WHERE _batch_id = :b', {"b": old})
         summary[src] = {"table": table, "rows": len(df), "origin": payload["origin"], "batch_id": payload["batch_id"]}
     return summary
