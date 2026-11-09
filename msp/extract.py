@@ -134,15 +134,25 @@ def live_earnings() -> list[dict]:
                 recs.append({"symbol": wanted[e["symbol"]], "period": None, "report_date": e.get("date"),
                              "eps_actual": None, "eps_estimate": e.get("epsEstimate")})
         return recs
-    # No Finnhub key: reported diluted EPS straight from SEC EDGAR XBRL (no estimates)
+    # No Finnhub key: reported EPS straight from SEC EDGAR XBRL (no estimates). Some filers do not
+    # tag diluted EPS (Berkshire reports per Class A share), so try basic EPS too and skip a
+    # company rather than failing the whole source.
     for a in config.STOCKS:
-        r = _get(f"https://data.sec.gov/api/xbrl/companyconcept/CIK{a['cik']:010d}/us-gaap/EarningsPerShareDiluted.json",
-                 headers={"User-Agent": config.SEC_USER_AGENT})
-        for f in r.json().get("units", {}).get("USD/shares", []):
-            if f.get("form") == "10-Q" and f.get("fp", "").startswith("Q"):
-                recs.append({"symbol": a["symbol"], "period": f["end"], "report_date": f["filed"],
-                             "eps_actual": f["val"], "eps_estimate": None})
-        time.sleep(0.15)  # SEC fair-access limit is 10 requests per second
+        for concept in ("EarningsPerShareDiluted", "EarningsPerShareBasic"):
+            try:
+                r = _get(f"https://data.sec.gov/api/xbrl/companyconcept/CIK{a['cik']:010d}/us-gaap/{concept}.json",
+                         headers={"User-Agent": config.SEC_USER_AGENT}, retries=1)
+            except requests.RequestException:
+                time.sleep(0.15)
+                continue
+            for f in r.json().get("units", {}).get("USD/shares", []):
+                if f.get("form") == "10-Q" and f.get("fp", "").startswith("Q"):
+                    recs.append({"symbol": a["symbol"], "period": f["end"], "report_date": f["filed"],
+                                 "eps_actual": f["val"], "eps_estimate": None})
+            time.sleep(0.15)  # SEC fair-access limit is 10 requests per second
+            break
+    if not recs:
+        raise RuntimeError("SEC returned no EPS for any company")
     return recs
 
 

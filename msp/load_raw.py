@@ -56,6 +56,9 @@ def load_raw(sources: list[str] | None = None, batch_id: str | None = None) -> d
                 db.execute(f'DROP TABLE "{table}"')
             else:
                 db.execute(f'DELETE FROM "{table}" WHERE _batch_id = :b', {"b": payload["batch_id"]})
+        if src == "news" and db.table_exists(table):
+            # news accumulates across batches, but never mixes live and sample stories
+            db.execute(f'DELETE FROM "{table}" WHERE _source <> :o', {"o": payload["origin"]})
         if db.dialect() == "postgresql":
             _copy_postgres(df, table)
         else:

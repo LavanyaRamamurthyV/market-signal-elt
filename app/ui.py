@@ -62,6 +62,20 @@ with st.sidebar:
         origins = q("SELECT DISTINCT data_origin FROM clean_prices")["data_origin"].tolist()
         st.metric("As of", signals["as_of"].max())
         st.write("Price data:", ", ".join(origins))
+        try:
+            import glob as _g
+
+            src = {}
+            for s_ in config.SOURCES:
+                files = sorted(_g.glob(str(config.LANDING_DIR / s_ / "*.json")))
+                if files:
+                    src[s_] = json.loads(Path(files[-1]).read_text())["origin"]
+            st.caption("Sources: " + ", ".join(f"{k} {v}" for k, v in src.items()))
+            if "live" in src.values() and "sample" in src.values():
+                st.info("Some sources fell back to the synthetic sample: "
+                        + ", ".join(k for k, v in src.items() if v == "sample"))
+        except Exception:  # noqa: BLE001
+            pass
         if "sample" in origins:
             st.warning("Showing the bundled SYNTHETIC sample (simulated prices and news). "
                        "Run with live data for real markets.")
